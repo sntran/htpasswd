@@ -1,6 +1,7 @@
 # htpasswd
 
-Deno port of [Apache's `htpasswd`](https://httpd.apache.org/docs/2.4/programs/htpasswd.html).
+Deno port of
+[Apache's `htpasswd`](https://httpd.apache.org/docs/2.4/programs/htpasswd.html).
 
 ## Installation
 
@@ -57,15 +58,20 @@ await compare("password", hash, algorithm); // true
 const passwordfile = ".htpasswd";
 await validate(passwordfile, "username", "password"); // false
 
-await upsert(passwordfile, "username", "password", { create: true, algorithm});
+await upsert(passwordfile, "username", "password", { create: true, algorithm });
 await validate(passwordfile, "username", "password"); // true
 await validate(passwordfile, "username", "fake"); // false
+await validate(passwordfile, "username", "password", { algorithm: "MD5" }); // false
+await validate(passwordfile, "username", "password", { algorithm }); // true
 
 await remove(passwordfile, "username");
 await validate(passwordfile, "username", "password"); // false
 ```
 
-## Current Limitations
+## Differences From Apache's
 
 - `CRYPT` encryption is not supported.
-- `MD5` encryption is not the same as Apache's MD5.
+- Standard `MD5` encryption is used instead.
+- `verify` can only verify against one `algorithm` specified in options.
+- `-v` can take `m`, `B`, `C`, `d`, `s`, or `p` to verify against one algorithm
+  only.

@@ -60,7 +60,11 @@ export async function upsert(
   const newline = `${username}:${hash}`;
 
   if (passwordfile) {
-    let htpasswd = await Deno.open(passwordfile, { create, read: true, write: true });
+    let htpasswd = await Deno.open(passwordfile, {
+      create,
+      read: true,
+      write: true,
+    });
 
     const lines = [];
     for await (const line of readLines(htpasswd)) {
@@ -125,17 +129,20 @@ export async function validate(
 ): Promise<boolean> {
   const {
     create,
+    algorithm,
   } = options;
 
   let found = false;
   const htpasswd = await Deno.open(passwordfile, { create, read: true });
+
+  const algorithms = algorithm ? [algorithm] : ["MD5", "SHA-1", "BCRYPT"];
 
   for await (const line of readLines(htpasswd)) {
     const [user, hash] = line.split(":");
 
     if (user !== username) continue;
 
-    for await (const algorithm of ["MD5", "SHA-1", "BCRYPT"]) {
+    for await (const algorithm of algorithms) {
       if (await compare(password, hash, algorithm)) {
         found = true;
         break;
@@ -203,7 +210,7 @@ if (import.meta.main) {
   const { parse } = await import("https://deno.land/std@0.178.0/flags/mod.ts");
 
   const args: string[] = [];
-  let algorithm = "MD5";
+  let algorithm;
 
   const {
     // See `HELP` for flag details
@@ -294,6 +301,7 @@ if (import.meta.main) {
 
     const validated = await validate(passwordfile, username, password, {
       create: c,
+      algorithm,
     });
     if (!validated) {
       console.info("password verification failed");
@@ -337,8 +345,10 @@ if (import.meta.main) {
     } else {
       console.info(`Updating password for user ${username}`);
     }
-  } catch(_error) {
-    console.error(`htpasswd: cannot modify file ${passwordfile}; use '-c' to create it`);
+  } catch (_error) {
+    console.error(
+      `htpasswd: cannot modify file ${passwordfile}; use '-c' to create it`,
+    );
   }
 }
 //#endregion CLI
