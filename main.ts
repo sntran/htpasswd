@@ -258,26 +258,26 @@ if (import.meta.main) {
   let [passwordfile, username, password] = args;
 
   if (!passwordfile) { // In fact, must have at least 1 argument.
-    console.log(HELP);
+    console.info(HELP);
     Deno.exit(1);
   }
 
   // Only one of -c -n -D -v may be specified.
   if ([c, n, D, v].filter(Boolean).length > 1) {
-    console.log("htpasswd: only one of -c -n -v -D may be specified");
+    console.error("htpasswd: only one of -c -n -v -D may be specified");
     Deno.exit(1);
   }
 
   if (!b && password) { // If not using -b, password must be read from prompt.
-    console.log(HELP);
+    console.info(HELP);
     Deno.exit(1);
   }
 
   if (D) { // Delete the specified user.
     if (await remove(passwordfile, username)) {
-      console.log(`Deleting password for user ${username}`);
+      console.info(`Deleting password for user ${username}`);
     } else {
-      console.log(`User ${username} not found`);
+      console.info(`User ${username} not found`);
     }
     Deno.exit(0);
   }
@@ -296,21 +296,21 @@ if (import.meta.main) {
       create: c,
     });
     if (!validated) {
-      console.log("password verification failed");
+      console.info("password verification failed");
       Deno.exit(0);
     } else {
-      console.log(`Password for user ${username} correct.`);
+      console.info(`Password for user ${username} correct.`);
       Deno.exit(0);
     }
   }
 
   if (algorithm === "CRYPT") {
-    console.log("CRYPT algorithm is too old and not supported.");
+    console.error("CRYPT algorithm is too old and not supported.");
     Deno.exit(1);
   }
 
   if (n && password) { // If using -n, no passwordfile should be specified.
-    console.log(HELP);
+    console.info(HELP);
     Deno.exit(1);
   }
 
@@ -321,20 +321,24 @@ if (import.meta.main) {
   }
 
   if (algorithm === "PLAIN") {
-    console.log(
+    console.warn(
       "Warning: storing passwords as plain text might just not work on this platform.",
     );
   }
 
-  const entry = await upsert(passwordfile, username, password, {
-    create: c,
-    algorithm,
-  });
+  try {
+    const entry = await upsert(passwordfile, username, password, {
+      create: c,
+      algorithm,
+    });
 
-  if (n) {
-    console.log(entry);
-  } else {
-    console.log(`Updating password for user ${username}`);
+    if (n) {
+      console.info(entry);
+    } else {
+      console.info(`Updating password for user ${username}`);
+    }
+  } catch(_error) {
+    console.error(`htpasswd: cannot modify file ${passwordfile}; use '-c' to create it`);
   }
 }
 //#endregion CLI
