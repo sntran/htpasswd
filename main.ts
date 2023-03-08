@@ -60,7 +60,7 @@ export async function upsert(
   const newline = `${username}:${hash}`;
 
   if (passwordfile) {
-    let htpasswd = await Deno.open(passwordfile, { create, read: true });
+    let htpasswd = await Deno.open(passwordfile, { create, read: true, write: true });
 
     const lines = [];
     for await (const line of readLines(htpasswd)) {
@@ -71,6 +71,10 @@ export async function upsert(
       } else {
         lines.push(newline);
       }
+    }
+
+    if (lines.length === 0) {
+      lines.push(newline);
     }
 
     htpasswd.close();
