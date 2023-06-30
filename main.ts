@@ -1,12 +1,11 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write --allow-net
-import { readLines } from "https://deno.land/std@0.178.0/io/read_lines.ts";
 import {
+  bcrypt, bcryptVerify,
   crypto,
   DigestAlgorithm,
+  readLines,
   toHashString,
-} from "https://deno.land/std@0.178.0/crypto/mod.ts";
-
-import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
+} from "./deps.ts";
 
 const encoder = new TextEncoder();
 
@@ -38,8 +37,13 @@ export type hash = string;
 
 export type Options = {
   create?: boolean;
+} & Digest;
+
+type Digest = {
   algorithm?: string;
-};
+  salt?: Uint8Array;
+  costFactor?: number;
+}
 
 /**
  * Inserts or updates a user in a password file.
@@ -53,38 +57,38 @@ export async function upsert(
 ): Promise<string> {
   const {
     create,
-    algorithm = "MD5",
+    ...digestOptions
   } = options;
 
-  const hash = await digest(password, algorithm);
+  const hash = await digest(password, digestOptions);
   const newline = `${username}:${hash}`;
 
   if (passwordfile) {
-    let htpasswd = await Deno.open(passwordfile, {
+    const htpasswd = await Deno.open(passwordfile, {
       create,
       read: true,
       write: true,
     });
 
     const lines = [];
+    let found = false;
     for await (const line of readLines(htpasswd)) {
       const [user] = line.split(":");
 
       if (user !== username) {
         lines.push(line);
       } else {
+        found = true;
         lines.push(newline);
       }
     }
 
-    if (lines.length === 0) {
+    if (!found) {
       lines.push(newline);
     }
 
     htpasswd.close();
-    htpasswd = await Deno.open(passwordfile, { write: true, truncate: true });
-    await htpasswd.write(encoder.encode(lines.join("\n")));
-    htpasswd.close();
+    await Deno.writeTextFile(passwordfile, lines.join("\n"));
   }
 
   return newline;
@@ -95,7 +99,7 @@ export async function upsert(
  * @returns true if the user was found and removed, false otherwise.
  */
 export async function remove(passwordfile: string, username: string) {
-  let htpasswd = await Deno.open(passwordfile, { read: true });
+  const htpasswd = await Deno.open(passwordfile, { read: true });
 
   const lines = [];
   let found = false;
@@ -110,9 +114,7 @@ export async function remove(passwordfile: string, username: string) {
   }
 
   htpasswd.close();
-  htpasswd = await Deno.open(passwordfile, { write: true, truncate: true });
-  await htpasswd.write(encoder.encode(lines.join("\n")));
-  htpasswd.close();
+  await Deno.writeTextFile(passwordfile, lines.join("\n"));
 
   return found;
 }
@@ -155,20 +157,27 @@ export async function validate(
   return found;
 }
 
-// deno-lint-ignore no-explicit-any
-const isRunningInDenoDeploy = (globalThis as any).Worker === undefined;
-
 /**
  * Digests a string using the specified algorithm.
  * @returns the digest hash
  */
-export async function digest(text: string, algorithm: string): Promise<hash> {
+export async function digest(text: string, options: Digest = {}): Promise<hash> {
+  const {
+    algorithm = "MD5",
+    costFactor = 5,
+    salt = genSalt(16),
+  } = options;
+
   if (algorithm === "PLAIN") {
     return text;
   }
 
   if (algorithm === "BCRYPT") {
-    return isRunningInDenoDeploy ? bcrypt.hashSync(text) : bcrypt.hash(text);
+    return bcrypt({
+      password: text,
+      salt,
+      costFactor,
+    });
   }
 
   const hash = await crypto.subtle.digest(
@@ -177,6 +186,12 @@ export async function digest(text: string, algorithm: string): Promise<hash> {
   );
 
   return toHashString(hash, "base64");
+}
+
+function genSalt(size = 16) {
+  const salt = new Uint8Array(size);
+  crypto.getRandomValues(salt);
+  return salt;
 }
 
 /**
@@ -193,13 +208,18 @@ export async function compare(
   }
 
   if (algorithm === "BCRYPT") {
-    return isRunningInDenoDeploy
-      ? bcrypt.compareSync(text, hash)
-      : bcrypt.compare(text, hash);
+    try {
+      return await bcryptVerify({
+        password: text,
+        hash
+      });
+    } catch (_error) {
+      return false;
+    }
   }
 
   return crypto.subtle.timingSafeEqual(
-    encoder.encode(await digest(text, algorithm)),
+    encoder.encode(await digest(text, { algorithm })),
     encoder.encode(hash),
   );
 }
@@ -207,7 +227,7 @@ export async function compare(
 
 //#region CLI
 if (import.meta.main) {
-  const { parse } = await import("https://deno.land/std@0.178.0/flags/mod.ts");
+  const { parse } = await import("https://deno.land/std@0.192.0/flags/mod.ts");
 
   const args: string[] = [];
   let algorithm;
@@ -218,7 +238,8 @@ if (import.meta.main) {
     n,
     b,
     i,
-    // m, B, C, d, s, p,
+    // m, B, d, s, p,
+    C,
     D,
     v,
   } = parse(Deno.args, {
@@ -322,7 +343,7 @@ if (import.meta.main) {
     Deno.exit(1);
   }
 
-  if (n) {
+  if (n) { // Don't update file; display results on stdout.
     password = username;
     username = passwordfile;
     passwordfile = "";
@@ -338,6 +359,7 @@ if (import.meta.main) {
     const entry = await upsert(passwordfile, username, password, {
       create: c,
       algorithm,
+      costFactor: parseInt(C),
     });
 
     if (n) {
